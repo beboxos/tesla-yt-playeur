@@ -59,6 +59,13 @@
     max-height: 100%;
     object-fit: contain;
   }
+  .img-wrap.fill img {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    object-fit: cover;
+  }
   .top-overlay {
     position: absolute;
     top: 10px;
@@ -236,18 +243,22 @@
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    display: flex;
-    flex-direction: column;
     position: relative;
   }
   .result-card .thumb-wrap {
     position: relative;
-  }
-  .result-card img {
     width: 100%;
-    aspect-ratio: 16/9;
-    object-fit: cover;
+    height: 0;
+    padding-bottom: 56.25%; /* ratio 16:9, compatible navigateurs anciens */
     background: #000;
+    overflow: hidden;
+  }
+  .result-card .thumb-wrap img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     display: block;
   }
   .fav-star {
@@ -270,12 +281,20 @@
   }
   .fav-star.active { color: #ffd23e; }
   .result-card .info {
-    padding: 10px 12px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 22px 10px 8px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85) 55%);
+    z-index: 1;
   }
   .result-card .title {
     font-size: 13px;
     font-weight: 600;
     line-height: 1.25;
+    color: var(--text);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -285,7 +304,11 @@
     margin-top: 4px;
     font-size: 11px;
     line-height: 1.3;
-    color: var(--muted);
+    color: #d6d6d6;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   #search-status {
     padding: 30px;
@@ -365,9 +388,10 @@
 
     <!-- Lecteur YouTube -->
     <div id="view-player" class="view">
-      <div class="img-wrap"><img id="yt-img" alt="Vidéo"></div>
+      <div class="img-wrap" id="yt-img-wrap"><img id="yt-img" alt="Vidéo"></div>
       <div class="top-overlay">
         <div class="pill" id="player-title">—</div>
+        <button class="icon-btn" id="fit-btn" title="Plein écran">⛶</button>
       </div>
       <div class="seek-bar">
         <span id="time-current">0:00</span>
@@ -449,10 +473,10 @@
           <div class="thumb-wrap">
             <img src="${item.thumb || ''}" loading="lazy">
             ${item.channel ? `<button class="fav-star${isFav ? ' active' : ''}" title="Favori : ${escapeHtml(item.channel)}">★</button>` : ''}
-          </div>
-          <div class="info">
-            <div class="title">${escapeHtml(item.title)}</div>
-            <div class="meta">${escapeHtml(item.channel || '')}${item.duration ? ' • ' + escapeHtml(item.duration) : ''}${item.published ? ' • ' + escapeHtml(item.published) : ''}</div>
+            <div class="info">
+              <div class="title">${escapeHtml(item.title)}</div>
+              <div class="meta">${escapeHtml(item.channel || '')}${item.duration ? ' • ' + escapeHtml(item.duration) : ''}${item.published ? ' • ' + escapeHtml(item.published) : ''}</div>
+            </div>
           </div>`;
         card.addEventListener('click', () => playVideo(item.id, item.title));
         const star = card.querySelector('.fav-star');
@@ -527,6 +551,14 @@
   const pauseBtn = document.getElementById('pause-btn');
   const stopBtn = document.getElementById('stop-btn');
   const backSearchBtn = document.getElementById('back-search-btn');
+  const fitBtn = document.getElementById('fit-btn');
+  const ytImgWrap = document.getElementById('yt-img-wrap');
+
+  fitBtn.addEventListener('click', () => {
+    const filled = ytImgWrap.classList.toggle('fill');
+    fitBtn.textContent = filled ? '↩' : '⛶';
+    fitBtn.title = filled ? 'Taille normale' : 'Plein écran';
+  });
 
   function postYtCommand(func, args) {
     if (!ytFrame.contentWindow) return;
@@ -594,6 +626,9 @@
     isPaused = false;
     pauseBtn.textContent = '⏸ Pause';
     playerTitle.textContent = title || id;
+    ytImgWrap.classList.remove('fill');
+    fitBtn.textContent = '⛶';
+    fitBtn.title = 'Plein écran';
     showView('player');
     startYtRefresh();
 
