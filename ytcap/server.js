@@ -12,6 +12,7 @@ let currentId = null;
 let lastFrame = null;
 let captureTimer = null;
 let idleTimer = null;
+let jpegQuality = 60;
 
 async function ensureBrowser() {
   if (!browser) {
@@ -57,7 +58,7 @@ function startCapture() {
   captureTimer = setInterval(async () => {
     if (!page) return;
     try {
-      lastFrame = await page.screenshot({ type: 'jpeg', quality: 60, timeout: 2000 });
+      lastFrame = await page.screenshot({ type: 'jpeg', quality: jpegQuality, timeout: 2000 });
     } catch (e) {
       // garder la dernière image valide
     }
@@ -97,6 +98,13 @@ app.post('/resume', async (req, res) => {
   const f = page?.frames().find(fr => fr.url().includes('youtube'));
   await f?.evaluate(() => { const v = document.querySelector('video'); if (v) v.play().catch(() => {}); }).catch(() => {});
   res.json({ ok: true });
+});
+
+app.post('/quality', (req, res) => {
+  const q = parseInt(req.query.q, 10);
+  if (isNaN(q) || q < 10 || q > 90) return res.status(400).json({ error: 'invalid q' });
+  jpegQuality = q;
+  res.json({ ok: true, quality: jpegQuality });
 });
 
 app.post('/seek', async (req, res) => {
@@ -140,12 +148,21 @@ function findVideoRenderers(obj, results) {
   return results;
 }
 
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const searchCache = new Map();
+
 app.get('/search', async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ error: 'missing q' });
+  const sort = req.query.sort === 'date' ? 'date' : '';
+  const cacheKey = sort + '|' + q;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.time < SEARCH_CACHE_TTL_MS) {
+    return res.json(cached.data);
+  }
   try {
     let url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&hl=fr`;
-    if (req.query.sort === 'date') {
+    if (sort === 'date') {
       url += '&sp=CAI%3D';
     }
     const r = await fetch(url, {
@@ -159,6 +176,7 @@ app.get('/search', async (req, res) => {
     if (!m) return res.json([]);
     const data = JSON.parse(m[1]);
     const results = findVideoRenderers(data, []).slice(0, 24);
+    searchCache.set(cacheKey, { time: Date.now(), data: results });
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: String(e) });

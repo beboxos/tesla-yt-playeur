@@ -22,12 +22,21 @@ pour donner une idée de ce qui se passe à l'écran.
 
 ## Fonctionnalités
 
-- Recherche YouTube sans clé API (scraping de la page de résultats)
+- Recherche YouTube sans clé API (scraping de la page de résultats, avec
+  cache serveur de 5 minutes)
 - Tri par date (plus récent en premier)
+- Page d'accueil type "abonnements" : affiche la dernière vidéo de chaque
+  chaîne favorite au chargement
 - Chaînes favorites : raccourcis de recherche, ajout en un clic via l'étoile
-  sur les vignettes de résultats
-- Lecteur avec barre de progression / seek, pause, stop
-- Réglage du FPS du diaporama (0.5 à 10 FPS)
+  sur les vignettes de résultats, liste de suggestions personnalisable
+  (`PRESET_CHANNELS` dans `index.html`), bouton pour afficher/masquer la barre
+  de favoris
+- Vignettes carrées avec titre/chaîne/durée en surimpression
+- Lecteur avec barre de progression / seek, pause, stop, bouton plein écran
+  (ajusté sur la largeur)
+- Réglages du diaporama : FPS (0.5 à 10), qualité JPEG (10 à 80), et
+  décalage image/son au démarrage (-10s à +10s) — réglables dans le lecteur
+  et mémorisés comme valeurs par défaut dans l'onglet Réglages
 - Interface sombre, pensée pour un écran tactile en voiture
 
 ## Architecture
