@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Tesla Cam + YouTube</title>
+<title>Tesla Tube</title>
 <style>
   :root {
     --accent: #3ea6ff;
@@ -12,6 +12,7 @@
     --card: #232323;
     --text: #f1f1f1;
     --muted: #9a9a9a;
+    --thumb-min-width: 200px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -241,7 +242,7 @@
     flex: 1;
     overflow-y: scroll;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--thumb-min-width), 1fr));
     gap: 14px;
     padding: 14px;
     -webkit-overflow-scrolling: touch;
@@ -417,14 +418,7 @@
     align-self: flex-start;
   }
 
-  #yt-frame {
-    position: fixed;
-    bottom: -1000px;
-    left: -1000px;
-    width: 1px;
-    height: 1px;
-    border: 0;
-  }
+
 </style>
 </head>
 <body>
@@ -507,6 +501,20 @@
         </div>
       </div>
       <div class="row">
+        <label>Largeur des vignettes (baisser si peu de colonnes s'affichent)</label>
+        <div class="big-slider">
+          <input type="range" id="thumb-width" min="100" max="260" step="10" value="200">
+          <span class="val" id="thumb-width-val">200</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>Échelle de l'interface (si tout paraît trop gros/petit sur la Tesla)</label>
+        <div class="big-slider">
+          <input type="range" id="ui-zoom" min="50" max="150" step="5" value="100">
+          <span class="val" id="ui-zoom-val">100%</span>
+        </div>
+      </div>
+      <div class="row">
         <label>Chaînes suggérées (cochées = ajoutées à vos favoris)</label>
         <div id="preset-channels" class="preset-list"></div>
       </div>
@@ -514,16 +522,21 @@
         <label>Chaînes favorites personnalisées (une par ligne, raccourcis sur l'écran de recherche)</label>
         <textarea id="fav-channels" rows="5" style="width:100%;padding:12px;border-radius:8px;border:none;background:#2c2c2c;color:var(--text);font-size:14px;"></textarea>
       </div>
+      <div class="row">
+        <label>Infos techniques (pour diagnostic)</label>
+        <pre id="debug-info" style="white-space:pre-wrap;background:#2c2c2c;padding:12px;border-radius:8px;font-size:12px;color:var(--muted);margin:0;"></pre>
+      </div>
       <button id="settings-close">Fermer</button>
     </div>
 
   </div>
 </div>
 
-<iframe id="yt-frame" allow="autoplay; encrypted-media" frameborder="0"></iframe>
+<audio id="yt-audio" preload="auto"></audio>
 
 <script>
   const ytImg = document.getElementById('yt-img');
+  const ytAudio = document.getElementById('yt-audio');
   const fpsSlider = document.getElementById('fps');
   const fpsVal = document.getElementById('fps-val');
   const qualitySlider = document.getElementById('quality');
@@ -536,7 +549,6 @@
   const avOffsetVal = document.getElementById('av-offset-val');
   const offsetSlider = document.getElementById('offset');
   const offsetVal = document.getElementById('offset-val');
-  const ytFrame = document.getElementById('yt-frame');
 
   const views = {
     search: document.getElementById('view-search'),
@@ -666,6 +678,9 @@
   const favContainer = document.getElementById('favorites');
   const presetContainer = document.getElementById('preset-channels');
 
+  // Suggestions issues des abonnements YouTube de l'utilisateur.
+  // Cochées par défaut ; un visiteur peut les décocher sans toucher
+  // aux favoris personnalisés (stockés séparément).
   // Suggestions de chaînes (ex : vos abonnements YouTube). Cochées par
   // défaut ; un visiteur peut les décocher sans toucher aux favoris
   // personnalisés (stockés séparément). Laissé vide par défaut : ajoutez
@@ -759,16 +774,10 @@
     fitBtn.title = filled ? 'Taille normale' : 'Plein écran';
   });
 
-  function postYtCommand(func, args) {
-    if (!ytFrame.contentWindow) return;
-    ytFrame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args: args || [] }), '*');
-  }
-
-  // ---------- Barre de progression ----------
+  // ---------- Barre de progression (pilotée nativement par l'élément <audio>) ----------
   const seekInput = document.getElementById('seek');
   const timeCurrent = document.getElementById('time-current');
   const timeDuration = document.getElementById('time-duration');
-  let progressTimer = null;
   let seeking = false;
 
   function formatTime(s) {
@@ -778,22 +787,17 @@
     return m + ':' + String(sec).padStart(2, '0');
   }
 
-  function startProgressPolling() {
-    if (progressTimer) clearInterval(progressTimer);
-    progressTimer = setInterval(async () => {
-      if (seeking) return;
-      try {
-        const r = await fetch('/yt/progress');
-        const p = await r.json();
-        if (p.duration > 0) {
-          seekInput.max = Math.floor(p.duration);
-          seekInput.value = Math.floor(p.currentTime);
-          timeCurrent.textContent = formatTime(p.currentTime);
-          timeDuration.textContent = formatTime(p.duration);
-        }
-      } catch (e) {}
-    }, 1000);
-  }
+  ytAudio.addEventListener('loadedmetadata', () => {
+    if (ytAudio.duration > 0) {
+      seekInput.max = Math.floor(ytAudio.duration);
+      timeDuration.textContent = formatTime(ytAudio.duration);
+    }
+  });
+  ytAudio.addEventListener('timeupdate', () => {
+    if (seeking) return;
+    seekInput.value = Math.floor(ytAudio.currentTime);
+    timeCurrent.textContent = formatTime(ytAudio.currentTime);
+  });
 
   seekInput.addEventListener('input', () => {
     seeking = true;
@@ -801,8 +805,9 @@
   });
   seekInput.addEventListener('change', () => {
     const t = parseFloat(seekInput.value);
-    postYtCommand('seekTo', [t, true]);
-    fetch('/yt/seek?t=' + t, { method: 'POST' }).catch(() => {});
+    ytAudio.currentTime = t;
+    const offset = parseFloat(localStorage.getItem('avOffset') || '0');
+    fetch('/yt/seek?t=' + Math.max(0, t + offset), { method: 'POST' }).catch(() => {});
     setTimeout(() => { seeking = false; }, 1000);
   });
 
@@ -850,7 +855,30 @@
   offsetSlider.addEventListener('input', () => setAvOffset(offsetSlider.value));
   setAvOffset(localStorage.getItem('avOffset') || avOffsetSlider.value);
 
-  function playVideo(id, title) {
+  // ---------- Réglages d'affichage (contournement des bugs de zoom/DPI Tesla) ----------
+  const thumbWidthSlider = document.getElementById('thumb-width');
+  const thumbWidthVal = document.getElementById('thumb-width-val');
+  function setThumbWidth(px) {
+    thumbWidthSlider.value = px;
+    thumbWidthVal.textContent = px;
+    document.documentElement.style.setProperty('--thumb-min-width', px + 'px');
+    localStorage.setItem('thumbMinWidth', px);
+  }
+  thumbWidthSlider.addEventListener('input', () => setThumbWidth(thumbWidthSlider.value));
+  setThumbWidth(localStorage.getItem('thumbMinWidth') || thumbWidthSlider.value);
+
+  const uiZoomSlider = document.getElementById('ui-zoom');
+  const uiZoomVal = document.getElementById('ui-zoom-val');
+  function setUiZoom(pct) {
+    uiZoomSlider.value = pct;
+    uiZoomVal.textContent = pct + '%';
+    document.documentElement.style.zoom = (pct / 100);
+    localStorage.setItem('uiZoom', pct);
+  }
+  uiZoomSlider.addEventListener('input', () => setUiZoom(uiZoomSlider.value));
+  setUiZoom(localStorage.getItem('uiZoom') || uiZoomSlider.value);
+
+  async function playVideo(id, title) {
     currentYtId = id;
     isPaused = false;
     pauseBtn.textContent = '⏸ Pause';
@@ -858,46 +886,50 @@
     ytImgWrap.classList.remove('fill');
     fitBtn.textContent = '⛶';
     fitBtn.title = 'Plein écran';
+    seekInput.value = 0;
+    timeCurrent.textContent = '0:00';
+    timeDuration.textContent = '0:00';
     showView('player');
+
+    try {
+      const r = await fetch('/yt/load?id=' + encodeURIComponent(id), { method: 'POST' });
+      const data = await r.json();
+      if (data.title) playerTitle.textContent = data.title;
+    } catch (e) {}
+
+    if (currentYtId !== id) return; // l'utilisateur a changé de vidéo entre-temps
+
     startYtRefresh();
+    ytAudio.src = '/yt/audio?_=' + Date.now();
+    ytAudio.currentTime = 0;
+    ytAudio.play().catch(() => {});
 
-    ytFrame.src = `https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
-    ytFrame.onload = () => setTimeout(() => {
-      postYtCommand('playVideo');
-      const offset = parseFloat(localStorage.getItem('avOffset') || '0');
-      if (offset !== 0) {
-        setTimeout(() => {
-          fetch('/yt/progress').then(r => r.json()).then(p => {
-            const t = Math.max(0, (p.currentTime || 0) + offset);
-            fetch('/yt/seek?t=' + t, { method: 'POST' }).catch(() => {});
-          }).catch(() => {});
-        }, 1000);
-      }
-    }, 500);
-
-    fetch('/yt/load?id=' + encodeURIComponent(id), { method: 'POST' }).catch(() => {});
-    startProgressPolling();
+    const offset = parseFloat(localStorage.getItem('avOffset') || '0');
+    if (offset !== 0) {
+      setTimeout(() => {
+        fetch('/yt/seek?t=' + Math.max(0, ytAudio.currentTime + offset), { method: 'POST' }).catch(() => {});
+      }, 1000);
+    }
   }
 
   pauseBtn.addEventListener('click', () => {
     isPaused = !isPaused;
     if (isPaused) {
-      postYtCommand('pauseVideo');
+      ytAudio.pause();
       fetch('/yt/pause', { method: 'POST' }).catch(() => {});
       pauseBtn.textContent = '▶ Lecture';
     } else {
-      postYtCommand('playVideo');
+      ytAudio.play().catch(() => {});
       fetch('/yt/resume', { method: 'POST' }).catch(() => {});
       pauseBtn.textContent = '⏸ Pause';
     }
   });
 
   stopBtn.addEventListener('click', () => {
-    postYtCommand('stopVideo');
-    ytFrame.src = '';
+    ytAudio.pause();
+    ytAudio.src = '';
     fetch('/yt/unload', { method: 'POST' }).catch(() => {});
     if (ytTimer) clearInterval(ytTimer);
-    if (progressTimer) clearInterval(progressTimer);
     currentYtId = null;
     showView('search');
   });
@@ -921,9 +953,30 @@
   applyFavoritesVisibility(localStorage.getItem('favoritesHidden') !== '0');
 
   // ---------- Réglages ----------
+  function updateDebugInfo() {
+    const el = document.getElementById('debug-info');
+    if (!el) return;
+    const vv = window.visualViewport;
+    const card = document.querySelector('.result-card');
+    const cardRect = card ? card.getBoundingClientRect() : null;
+    const lines = [
+      'window.innerWidth/Height: ' + window.innerWidth + ' x ' + window.innerHeight,
+      'devicePixelRatio: ' + window.devicePixelRatio,
+      'screen.width/height: ' + screen.width + ' x ' + screen.height,
+      'screen.availWidth/Height: ' + screen.availWidth + ' x ' + screen.availHeight,
+      'visualViewport: ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (scale ' + vv.scale + ')') : 'n/a'),
+      '#results width: ' + (document.getElementById('results')?.getBoundingClientRect().width.toFixed(0) || 'n/a'),
+      'colonnes visibles: ' + (cardRect ? Math.round(document.getElementById('results').getBoundingClientRect().width / cardRect.width) : 'n/a'),
+      'largeur carte: ' + (cardRect ? cardRect.width.toFixed(0) : 'n/a'),
+      'user agent: ' + navigator.userAgent
+    ];
+    el.textContent = lines.join('\n');
+  }
+
   document.getElementById('settings-btn-yt').addEventListener('click', () => {
     favTextarea.value = getCustomFavorites().join('\n');
     renderPresetCheckboxes();
+    updateDebugInfo();
     showView('settings');
   });
   document.getElementById('settings-close').addEventListener('click', () => {

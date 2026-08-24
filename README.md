@@ -2,19 +2,22 @@
 
 Une interface web pour regarder/écouter YouTube depuis le navigateur embarqué d'une
 Tesla (ou tout navigateur restreint qui bloque la lecture vidéo mais autorise
-l'audio et l'affichage d'images).
+l'audio. et l'affichage d'images).
 
 ## Pourquoi ?
 
 Le navigateur de la Tesla bloque la lecture vidéo (HTML5 `<video>` / iframes
 YouTube), mais autorise la lecture audio. Ce projet contourne la limitation en :
 
-- jouant l'audio de la vidéo YouTube via un `<iframe>` caché et l'API
-  YouTube IFrame (`postMessage`),
-- affichant en parallèle un **diaporama** de la vidéo : un navigateur headless
-  (Playwright/Chromium) côté serveur lit réellement la vidéo et envoie des
-  captures d'écran régulières (JPEG) au client, qui les affiche en boucle
-  comme un flux "vidéo" basse fréquence.
+- résolvant côté serveur, via [`yt-dlp`](https://github.com/yt-dlp/yt-dlp), les
+  flux audio/vidéo directs d'une vidéo YouTube (sans jamais charger de page
+  YouTube dans un navigateur — ce qui évite les murs anti-bot type "confirmez
+  que vous n'êtes pas un robot"),
+- décodant le flux vidéo avec `ffmpeg` et en extrayant des captures d'écran
+  régulières (JPEG), affichées côté client en boucle comme un **diaporama**
+  "vidéo" basse fréquence,
+- jouant l'audio via une balise `<audio>` standard, dont le flux est proxifié
+  par le serveur (avec support du `Range` HTTP pour permettre le seek).
 
 Le résultat : sur l'écran de la voiture, on a une recherche YouTube complète,
 le son de la vidéo, et une image qui se rafraîchit plusieurs fois par seconde
@@ -23,7 +26,8 @@ pour donner une idée de ce qui se passe à l'écran.
 ## Fonctionnalités
 
 - Recherche YouTube sans clé API (scraping de la page de résultats, avec
-  cache serveur de 5 minutes)
+  cache serveur de 5 minutes et retry automatique en cas de réponse
+  incomplète de YouTube)
 - Tri par date (plus récent en premier)
 - Page d'accueil type "abonnements" : affiche la dernière vidéo de chaque
   chaîne favorite au chargement
@@ -32,30 +36,47 @@ pour donner une idée de ce qui se passe à l'écran.
   (`PRESET_CHANNELS` dans `index.html`), bouton pour afficher/masquer la barre
   de favoris
 - Vignettes carrées avec titre/chaîne/durée en surimpression
+- Sélection automatique de la piste audio française quand une vidéo propose
+  plusieurs doublages
 - Lecteur avec barre de progression / seek, pause, stop, bouton plein écran
   (ajusté sur la largeur)
 - Réglages du diaporama : FPS (0.5 à 10), qualité JPEG (10 à 80), et
   décalage image/son au démarrage (-10s à +10s) — réglables dans le lecteur
   et mémorisés comme valeurs par défaut dans l'onglet Réglages
+- Réglages d'affichage (largeur des vignettes, échelle globale de
+  l'interface via `zoom` CSS) pour compenser les navigateurs embarqués qui
+  rapportent un `devicePixelRatio` ou un viewport inhabituel
+- Panneau d'infos techniques (résolution, DPI, user-agent...) dans les
+  réglages, utile pour diagnostiquer ce genre de problème d'affichage
 - Interface sombre, pensée pour un écran tactile en voiture
 
 ## Architecture
 
 ```
-┌─────────────┐      ┌──────────────────┐      ┌──────────────────────┐
-│  Navigateur  │◄────►│  nginx (web)      │◄────►│  ytcap (Node/Express  │
-│  (Tesla)     │      │  sert index.html  │      │  + Playwright/Chromium│
-└─────────────┘      │  proxy /yt/ ─────►│      │  capture la vidéo     │
-                      └──────────────────┘      │  YouTube en headless  │
-                                                  └──────────────────────┘
+┌─────────────┐      ┌──────────────────┐      ┌───────────────────────────┐
+│  Navigateur  │◄────►│  nginx (web)      │◄────►│  ytcap (Node/Express)     │
+│  (Tesla)     │      │  sert index.html  │      │  - yt-dlp : résout les    │
+└─────────────┘      │  proxy /yt/ ─────►│      │    flux YouTube directs   │
+                      └──────────────────┘      │  - ffmpeg : décode la      │
+                                                  │    vidéo → JPEG           │
+                                                  │  - proxy audio (Range)    │
+                                                  └───────────────────────────┘
 ```
 
 - **`web`** (nginx:alpine) : sert l'interface statique (`index.html`) et
   reverse-proxy `/yt/*` vers le service `ytcap`.
-- **`ytcap`** : serveur Express qui pilote un Chromium headless (Playwright)
-  pour charger une vidéo YouTube embarquée, en extraire des captures d'écran
-  régulières, contrôler la lecture (play/pause/seek) et faire la recherche
-  YouTube côté serveur.
+- **`ytcap`** : serveur Express qui, pour une vidéo donnée :
+  1. utilise `yt-dlp` (avec le runtime JS `deno`, requis pour résoudre les
+     challenges de signature de YouTube) pour obtenir des URLs de flux
+     directes — en testant plusieurs clients d'extraction et en validant
+     chaque URL, car YouTube n'autorise pas toujours l'accès direct selon le
+     client utilisé ;
+  2. lance `ffmpeg` pour décoder le flux vidéo et en extraire des images
+     JPEG à intervalle régulier (`/yt/frame.jpg`) ;
+  3. proxifie le flux audio vers le client (`/yt/audio`, avec support du
+     `Range` HTTP pour le seek) ;
+  4. fait aussi office de proxy de recherche YouTube (scraping HTML, sans
+     clé API).
 
 ## Démarrage rapide
 
@@ -73,17 +94,19 @@ L'interface est ensuite disponible sur `http://<host>:18081`.
 
 - Le port exposé est défini dans [`docker-compose.yml`](docker-compose.yml)
   (`18081:80` par défaut).
-- La fréquence de capture côté serveur est définie par `CAPTURE_INTERVAL_MS`
-  dans [`ytcap/server.js`](ytcap/server.js) (100 ms par défaut, soit 10 FPS
-  max).
+- La fréquence de capture côté serveur est définie par `CAPTURE_FPS`
+  dans [`ytcap/server.js`](ytcap/server.js) (10 FPS par défaut).
 - Les chaînes favorites sont stockées côté client (`localStorage`), pas de
   configuration serveur nécessaire.
 
 ## Avertissement
 
-Ce projet scrape les pages publiques de résultats YouTube et pilote un
-navigateur headless pour afficher des vidéos embarquées : il est destiné à un
-usage personnel. Respectez les conditions d'utilisation de YouTube.
+Ce projet scrape les pages publiques de résultats YouTube et résout des flux
+vidéo/audio directs via `yt-dlp` : il est destiné à un usage personnel.
+Respectez les conditions d'utilisation de YouTube. Le fonctionnement dépend
+de mécanismes internes de YouTube qui évoluent régulièrement (anti-bot,
+formats disponibles) : `yt-dlp` doit être maintenu à jour pour rester
+fonctionnel.
 
 ## Licence
 
