@@ -48,6 +48,14 @@ pour donner une idée de ce qui se passe à l'écran.
   rapportent un `devicePixelRatio` ou un viewport inhabituel
 - Panneau d'infos techniques (résolution, DPI, user-agent...) dans les
   réglages, utile pour diagnostiquer ce genre de problème d'affichage
+- Split-screen optionnel (bouton "Split") : partage l'écran 50/50 entre la
+  vidéo et une carte de navigation ([TeslaNav](https://teslanav.com/)) dans
+  un `<iframe>`. **Nécessite que le site soit servi en HTTPS** : un iframe
+  n'est considéré comme un contexte sécurisé par le navigateur que si toute
+  la chaîne de pages parentes l'est aussi, sans quoi certaines API web (ex.
+  `crypto.randomUUID`) échouent à l'intérieur de l'iframe
+- Indicateur de chargement pendant la résolution du flux (quelques secondes,
+  le temps que `yt-dlp` trouve une URL jouable) au lieu d'une image cassée
 - Interface sombre, pensée pour un écran tactile en voiture
 
 ## Architecture
