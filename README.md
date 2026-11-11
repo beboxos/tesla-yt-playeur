@@ -119,3 +119,22 @@ fonctionnel.
 ## Licence
 
 [MIT](LICENSE)
+
+## Bonus : Mahjong Impérial — Légendes d'Asie
+
+`mahjong.html` est un jeu de Mahjong Solitaire autonome (une seule page HTML5,
+JavaScript Vanilla, Web Audio API, Canvas 2D), servi par nginx sur
+`/mahjong.html`.
+
+- 5 niveaux (Le Sanctuaire, Les Tours Jumelles, La Pyramide du Dragon,
+  La Tortue Impériale, Le Palais Céleste) générés par retrait inversé de paires :
+  chaque donne a au moins une solution
+- Règle officielle : une tuile est libre si rien ne la recouvre (même
+  partiellement) sur la couche supérieure et si son flanc gauche ou droit est libre
+- Tuiles 3D en CSS, faces vectorielles SVG (36 classes : Caractères, Bambous,
+  Cercles, Vents, Dragons, Fleurs, Saisons)
+- Indice / Mélanger (en garantissant une solution) / Annuler, combo temporel,
+  bonus de temps, étoiles
+- Effets de fusion (éclairs, particules), sons synthétisés et musique générative
+- Profil, avatars, progression et tableau des scores (avec maîtres IA)
+  sauvegardés dans `localStorage`
